@@ -1,87 +1,59 @@
+// src/db/database.ts
 import sqlite3 from 'sqlite3';
-import { promisify } from 'util';
-import { Task, SyncQueueItem } from '../types';
-
-const sqlite = sqlite3.verbose();
+import { open, Database as SQLiteDatabase } from 'sqlite';
 
 export class Database {
-  private db: sqlite3.Database;
+  private db!: SQLiteDatabase;
 
-  constructor(filename: string = ':memory:') {
-    this.db = new sqlite.Database(filename);
-  }
+  constructor(private filename: string) {}
 
   async initialize(): Promise<void> {
-    await this.createTables();
-  }
+    this.db = await open({
+      filename: this.filename,
+      driver: sqlite3.Database,
+    });
 
-  private async createTables(): Promise<void> {
-    const createTasksTable = `
+    await this.db.exec(`
       CREATE TABLE IF NOT EXISTS tasks (
         id TEXT PRIMARY KEY,
-        title TEXT NOT NULL,
+        title TEXT,
         description TEXT,
         completed INTEGER DEFAULT 0,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         is_deleted INTEGER DEFAULT 0,
         sync_status TEXT DEFAULT 'pending',
-        server_id TEXT,
-        last_synced_at DATETIME
-      )
-    `;
+        created_at TEXT,
+        updated_at TEXT,
+        last_synced_at TEXT,
+        server_id TEXT
+      );
 
-    const createSyncQueueTable = `
       CREATE TABLE IF NOT EXISTS sync_queue (
         id TEXT PRIMARY KEY,
-        task_id TEXT NOT NULL,
-        operation TEXT NOT NULL,
-        data TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        task_id TEXT,
+        operation TEXT,
+        data TEXT,
+        created_at TEXT DEFAULT (datetime('now')),
         retry_count INTEGER DEFAULT 0,
-        error_message TEXT,
-        FOREIGN KEY (task_id) REFERENCES tasks(id)
-      )
-    `;
-
-    await this.run(createTasksTable);
-    await this.run(createSyncQueueTable);
+        error_message TEXT
+      );
+    `);
   }
 
-  // Helper methods
-  run(sql: string, params: any[] = []): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.run(sql, params, (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+  async run(sql: string, params: any[] = []): Promise<void> {
+    await this.db.run(sql, params);
   }
 
-  get(sql: string, params: any[] = []): Promise<any> {
-    return new Promise((resolve, reject) => {
-      this.db.get(sql, params, (err, row) => {
-        if (err) reject(err);
-        else resolve(row);
-      });
-    });
+  async get<T = any>(sql: string, params: any[] = []): Promise<T | undefined> {
+    return this.db.get<T>(sql, params);
   }
 
-  all(sql: string, params: any[] = []): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      this.db.all(sql, params, (err, rows) => {
-        if (err) reject(err);
-        else resolve(rows);
-      });
-    });
+  async all<T = any>(sql: string, params: any[] = []): Promise<T[]> {
+    return this.db.all<T[]>(sql, params);
   }
 
-  close(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      this.db.close((err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
+  async close(): Promise<void> {
+    if (this.db) {
+      await this.db.close();
+    }
   }
 }
